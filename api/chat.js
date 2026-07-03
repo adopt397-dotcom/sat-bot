@@ -1,5 +1,5 @@
 // ============================================================
-// SAT 챗봇 API - Vercel Serverless Function (CORS + OpenAI 통합)
+// SAT 챗봇 API - DeepSeek 버전 (CORS + DeepSeek 통합)
 // ============================================================
 
 export default async function handler(req, res) {
@@ -64,12 +64,12 @@ export default async function handler(req, res) {
     const answer = problem.A || problem.answer || '정답 없음';
 
     // ============================================================
-    // 5. OpenAI API 호출
+    // 5. DeepSeek API 호출
     // ============================================================
-    const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+    const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
 
-    if (!OPENAI_API_KEY) {
-      return res.status(500).json({ error: 'OpenAI API 키가 설정되지 않았습니다.' });
+    if (!DEEPSEEK_API_KEY) {
+      return res.status(500).json({ error: 'DeepSeek API 키가 설정되지 않았습니다.' });
     }
 
     const systemPrompt = `
@@ -77,6 +77,7 @@ export default async function handler(req, res) {
       - 정답을 절대 바로 알려주지 마세요.
       - 힌트를 3단계로 나누어 제공하세요.
       - 학생이 스스로 풀 수 있도록 유도하세요.
+      - 친절하고 격려하는 말투를 사용하세요.
     `;
 
     const userPrompt = `
@@ -86,14 +87,14 @@ export default async function handler(req, res) {
       학생 질문: ${question}
     `;
 
-    const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+    const deepseekRes = await fetch('https://api.deepseek.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${OPENAI_API_KEY}`
+        'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: 'deepseek-chat',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
@@ -103,15 +104,15 @@ export default async function handler(req, res) {
       })
     });
 
-    if (!openaiRes.ok) {
-      const errorData = await openaiRes.json();
+    if (!deepseekRes.ok) {
+      const errorData = await deepseekRes.json();
       return res.status(502).json({
-        error: `OpenAI API 오류: ${errorData.error?.message || '알 수 없는 오류'}`
+        error: `DeepSeek API 오류: ${errorData.error?.message || '알 수 없는 오류'}`
       });
     }
 
-    const openaiData = await openaiRes.json();
-    const aiMessage = openaiData.choices?.[0]?.message?.content ||
+    const deepseekData = await deepseekRes.json();
+    const aiMessage = deepseekData.choices?.[0]?.message?.content ||
       '죄송합니다. 응답을 생성할 수 없었습니다.';
 
     // ============================================================
