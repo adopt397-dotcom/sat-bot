@@ -1,0 +1,10 @@
+{
+  "name": "sat-bot",
+  "version": "2.1.0",
+  "private": true,
+  "type": "module",
+  "main": "api/chat.js",
+  "engines": {
+    "node": ">=20"
+  }
+}
