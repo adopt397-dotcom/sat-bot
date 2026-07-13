@@ -1,6 +1,0 @@
-{
-  "name": "sat-bot",
-  "version": "1.0.0",
-  "type": "module",
-  "main": "api/chat.js"
-}
