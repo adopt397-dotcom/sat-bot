@@ -116,7 +116,12 @@ Return UNSUPPORTED when a structured recreation would be unreliable or has no pr
 For READY, NEEDS_REVIEW, or NEEDS_CONFIRMATION, graphicJson must be one valid JSON object encoded as a string:
 {"engine":"super","schemaVersion":"1.0","type":"scene"|"calculus.functionGraph"|"calculus.regionBetweenCurves"|"calculus.tangent"|"calculus.secant"|"calculus.piecewise","data":{...},"layout":{...}}
 
-Keep the JSON compact. Use only coordinate systems, points, lines, segments, rays, curves, piecewise curves, simple shapes, polygons, regions, vectors, text, and math labels. Expressions use x, numbers, parentheses, + - * / ^, sqrt, abs, sin, cos, tan, exp, log, pi, and e. Domains are [min,max].
+Keep the JSON compact. The renderer requires these exact calculus fields:
+- calculus.functionGraph: data.coordinateSystem and data.curves (not data.functions). Example: {"data":{"coordinateSystem":{"xRange":[-3,3],"yRange":[-2,5]},"curves":[{"id":"f","expression":"x^2","domain":[-2,2]}]}}
+- calculus.regionBetweenCurves: the same data.curves array plus data.region with upper, lower, and xRange. Example: {"region":{"upper":"g","lower":"f","xRange":[0,2]}}
+- calculus.piecewise: data.coordinateSystem and data.pieces. Every piece is a separate object such as {"expression":"2*x+1","domain":[-3,0]}. Never use piecewise(), if/then, comparison operators, ampersands, or multiple expressions inside one string.
+
+Use only coordinate systems, points, lines, segments, rays, curves, simple shapes, polygons, regions, vectors, text, and math labels. Expressions use x, numbers, parentheses, + - * / ^, sqrt, abs, sin, cos, tan, exp, log, pi, and e. Domains are [min,max].
 Do not include source images, data URLs, external URLs, file IDs, markdown, explanations, or code fences in graphicJson.
 For UNSUPPORTED, use an empty graphicJson string. Warnings must be short Korean strings.`;
 }
