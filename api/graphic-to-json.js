@@ -188,7 +188,13 @@ function normalizeConversion(value) {
   if (status === 'UNSUPPORTED') return { status, json: null, warnings, requiresReview: true };
 
   let json;
-  try { json = JSON.parse(String(value?.graphicJson || '')); } catch {
+  try {
+    if (value?.graphicJson && typeof value.graphicJson === 'object') json = value.graphicJson;
+    else {
+      const source = String(value?.graphicJson || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+      json = JSON.parse(source);
+    }
+  } catch {
     return { status: 'NEEDS_CONFIRMATION', json: null, warnings: [...warnings, '생성된 JSON을 해석할 수 없습니다.'], requiresReview: true };
   }
   if (!isBasicSuperGraphic(json)) {
