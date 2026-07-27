@@ -245,10 +245,43 @@ function normalizeConversion(value) {
   } catch {
     return { status: 'NEEDS_CONFIRMATION', json: null, warnings: [...warnings, '생성된 JSON을 해석할 수 없습니다.'], requiresReview: true };
   }
+  json = repairGraphicJson(json);
   if (!isBasicSuperGraphic(json)) {
     return { status: 'NEEDS_CONFIRMATION', json: null, warnings: [...warnings, 'Super Graphic 기본 형식 검증에 실패했습니다.'], requiresReview: true };
   }
   return { status, json, warnings, requiresReview: Boolean(value?.requiresReview) || status !== 'READY' };
+}
+
+// Vision models sometimes describe a hand-drawn curve as points, or repeat the
+// axes as primitives. Convert these harmless variants into the v1.1 contract
+// before the browser validator sees them.
+function repairGraphicJson(json) {
+  if (!json || typeof json !== 'object' || Array.isArray(json)) return json;
+  if (json.type === 'multiPanel' && Array.isArray(json?.data?.panels)) {
+    json.data.panels.forEach(panel => {
+      if (panel?.scene) panel.scene = repairScene(panel.scene);
+    });
+    return json;
+  }
+  if (json.type === 'scene') return Object.assign({}, json, { data: repairScene(json.data) });
+  return json;
+}
+
+function repairScene(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return data;
+  const items = Array.isArray(data.items) ? data.items : [];
+  const repaired = items
+    .filter(item => item && item.type !== 'axis' && item.type !== 'axes')
+    .map(item => {
+      if (item.type !== 'curve' || item.expression || !Array.isArray(item.points)) return item;
+      const points = item.points.map(point => {
+        if (Array.isArray(point)) return point;
+        if (point && Number.isFinite(Number(point.x)) && Number.isFinite(Number(point.y))) return [Number(point.x), Number(point.y)];
+        return point;
+      });
+      return Object.assign({}, item, { type: 'polyline', points });
+    });
+  return Object.assign({}, data, { items: repaired });
 }
 
 function isBasicSuperGraphic(json) {
