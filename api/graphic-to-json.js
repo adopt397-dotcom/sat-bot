@@ -74,7 +74,11 @@ export default async function handler(req, res) {
       throw new Error('Graphic analysis request failed.');
     }
 
-    const result = normalizeConversion(JSON.parse(extractOpenAIText(responseData)));
+    let responseText = extractOpenAIText(responseData);
+    if (conversion.quality === 'precision') {
+      responseText = await refineStructuredConversion({ imageDataUrl, model, conversion, visualEvidence, candidate: responseText }) || responseText;
+    }
+    const result = normalizeConversion(JSON.parse(responseText));
     return res.status(200).json({
       success: true,
       status: result.status,
@@ -213,6 +217,41 @@ async function extractVisualEvidence({ imageDataUrl, model, conversion }) {
     return '';
   }
   return extractOpenAIText(data).slice(0, 7000);
+}
+
+async function refineStructuredConversion({ imageDataUrl, model, conversion, visualEvidence, candidate }) {
+  const response = await fetch('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
+    },
+    body: JSON.stringify({
+      model,
+      instructions: `You are the final visual quality reviewer for an educational diagram-to-JSON conversion. Compare the original image with the candidate conversion and return a corrected result using the supplied JSON schema. Return the same wrapper fields: status, graphicJson as a JSON string, warnings, requiresReview. Do not write commentary outside that wrapper.
+
+Audit before returning: (1) Is this one graph or separate panels? (2) Did every visible curve, line, marked point, label, dashed style, and shaded region appear? (3) Are explicitly given notes reflected in items? (4) Does each scene use data.coordinateSystem and data.items only? (5) Is every item a supported primitive? Correct the candidate when any answer-relevant feature is missing. Do not replace multiple visible curves with one curve. If exact formulas are not justified, retain the visual curves as polylines rather than inventing formulas.`,
+      input: [{ role: 'user', content: [
+        { type: 'input_text', text: `Conversion profile: ${conversion.mode}; requested separate panels: ${conversion.panelCount}; notes: ${conversion.notes || '(none)'}\n\nVisual evidence:\n${visualEvidence || '(none)'}\n\nCandidate conversion:\n${candidate}` },
+        { type: 'input_image', image_url: imageDataUrl, detail: 'high' }
+      ] }],
+      text: {
+        format: {
+          type: 'json_schema',
+          name: 'gongboo_graphic_conversion_review',
+          strict: true,
+          schema: conversionSchema()
+        }
+      },
+      max_output_tokens: 6500
+    })
+  });
+  const data = await readJsonSafely(response);
+  if (!response.ok) {
+    console.warn('Graphic review pass failed:', response.status);
+    return '';
+  }
+  return extractOpenAIText(data);
 }
 
 function conversionSchema() {
