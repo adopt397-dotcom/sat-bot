@@ -37,6 +37,9 @@ export default async function handler(req, res) {
     const model = conversion.quality === 'precision'
       ? (process.env.OPENAI_GRAPHIC_PRECISION_MODEL || 'gpt-4.1')
       : (process.env.OPENAI_GRAPHIC_MODEL || 'gpt-4.1-mini');
+    const visualEvidence = conversion.quality === 'precision'
+      ? await extractVisualEvidence({ imageDataUrl, model, conversion })
+      : '';
     const response = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
@@ -49,7 +52,7 @@ export default async function handler(req, res) {
         input: [{
           role: 'user',
           content: [
-            { type: 'input_text', text: buildRequestContext(conversion) },
+            { type: 'input_text', text: buildRequestContext(conversion, visualEvidence) },
             { type: 'input_image', image_url: imageDataUrl, detail: 'high' }
           ]
         }],
@@ -130,6 +133,8 @@ Accuracy rules, in priority order:
 4. For translated copies of a graph, create a separate curve or polyline for every visible copy and give each one its own style. Do not collapse multiple visible curves into one.
 5. For a dashed curve or hidden spatial edge, set style.lineStyle to "dashed". For a shaded region, emit a region item with a polygon or underCurve boundary.
 6. Before returning, verify that every scene has data.coordinateSystem and a nonempty data.items array, every item type is supported, and every curve expression is valid under the allowed expression grammar.
+7. For a parabola with a visible vertex (h,k) and symmetric points, fit y=a*(x-h)^2+k using those facts. If several parabolas share h and differ only in k, emit every visible parabola separately; preserve the one solid curve and all dashed curves. For example, a common vertex x=-1 with vertices (-1,3), (-1,2), (-1,0), (-1,-2) is four curves in one scene, not four panels.
+8. A horizontal line explicitly labelled y=c must be a separate line or segment at y=c. A labelled coordinate such as (-2,4) must be both a point and a text/label at that exact location.
 Valid examples: {"type":"point","position":[1,2],"label":"P"}, {"type":"segment","from":[0,0],"to":[2,1],"style":{"lineStyle":"dashed"}}, {"type":"polyline","points":[[0,0],[1,2],[2,1]]}, {"type":"circle","center":[0,0],"radius":2}, {"type":"curve","id":"f","expression":"x^2","domain":[-2,2]}, {"type":"region","boundary":{"polygon":[[0,0],[1,0],[0,1]]}}, {"type":"region","boundary":{"underCurve":"f","xRange":[0,1],"baseline":0}}.
 For 2–6 independent panels use {"engine":"super","schemaVersion":"1.1","type":"multiPanel","data":{"layout":{"columns":2},"panels":[{"id":"A","title":"(A)","scene":{"coordinateSystem":{},"items":[]}}]}}.
 
@@ -170,7 +175,7 @@ function normalizeConversionOptions(raw) {
   };
 }
 
-function buildRequestContext(conversion) {
+function buildRequestContext(conversion, visualEvidence = '') {
   return `Analyze this educational diagram and return the requested conversion decision.
 
 Conversion mode: ${conversion.mode}
@@ -179,7 +184,35 @@ Quality: ${conversion.quality}
 Strict mode: ${conversion.strict ? 'on' : 'off'}
 Must preserve: ${conversion.preserve.join(', ') || '(none)'}
 Teacher-provided mathematical notes (facts only):
-${conversion.notes || '(none)'}`;
+${conversion.notes || '(none)'}
+
+Evidence extracted from a first visual inspection (use only when it agrees with the image and notes):
+${visualEvidence || '(not requested)'}`;
+}
+
+async function extractVisualEvidence({ imageDataUrl, model, conversion }) {
+  const response = await fetch('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
+    },
+    body: JSON.stringify({
+      model,
+      instructions: `Inspect this educational diagram before a separate renderer converts it to JSON. Return a concise evidence list only, not JSON and not explanations. Count separate panels versus curves in one axes. Transcribe visible labels, coordinates, equations, endpoints, vertices, intersections, axes ranges, solid/dashed styles, hidden edges, and shaded boundaries. Never infer unreadable values. Treat these teacher notes as constraints when clear: ${conversion.notes || '(none)'}`,
+      input: [{ role: 'user', content: [
+        { type: 'input_text', text: `Mode: ${conversion.mode}; requested separate panels: ${conversion.panelCount}; preserve: ${conversion.preserve.join(', ')}` },
+        { type: 'input_image', image_url: imageDataUrl, detail: 'high' }
+      ] }],
+      max_output_tokens: 1800
+    })
+  });
+  const data = await readJsonSafely(response);
+  if (!response.ok) {
+    console.warn('Graphic evidence pass failed:', response.status);
+    return '';
+  }
+  return extractOpenAIText(data).slice(0, 7000);
 }
 
 function conversionSchema() {
