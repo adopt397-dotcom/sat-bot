@@ -34,7 +34,9 @@ export default async function handler(req, res) {
     const imageCheck = validateImageDataUrl(imageDataUrl);
     if (!imageCheck.valid) return res.status(400).json({ success: false, error: imageCheck.message });
 
-    const model = process.env.OPENAI_GRAPHIC_MODEL || 'gpt-4.1-mini';
+    const model = conversion.quality === 'precision'
+      ? (process.env.OPENAI_GRAPHIC_PRECISION_MODEL || 'gpt-4.1')
+      : (process.env.OPENAI_GRAPHIC_MODEL || 'gpt-4.1-mini');
     const response = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
@@ -59,7 +61,7 @@ export default async function handler(req, res) {
             schema: conversionSchema()
           }
         },
-        max_output_tokens: 4200
+        max_output_tokens: conversion.quality === 'precision' ? 6500 : 4200
       })
     });
 
@@ -119,6 +121,15 @@ Use schemaVersion "1.1" and prefer this one universal contract:
 {"engine":"super","schemaVersion":"1.1","type":"scene","data":{"coordinateSystem":{},"items":[...]}}
 
 Every drawable element MUST be inside data.items. Never emit data.lines, data.circles, data.points, data.curves, or data.texts as top-level arrays.
+First determine the visual layout privately before writing JSON. A multiPanel is ONLY for separate coordinate frames or distinct lettered subfigures such as (A), (B), (C). Multiple curves, dashed copies, transformations, regions, or labels inside one set of axes are ONE scene, never multiple panels. A requested panel count is a count of separate subfigures, not a count of curves.
+
+Accuracy rules, in priority order:
+1. Preserve the number of axes/panels, coordinate ranges, marked points, endpoints, intersections, labels, solid versus dashed lines, and shaded answer region.
+2. Apply teacher notes as constraints when they agree with the image. Put stated points and intersections into items; do not merely mention them in warnings.
+3. Do not invent an equation. When a curve has no reliable printed formula, use a polyline with enough visible key points and use NEEDS_REVIEW or NEEDS_CONFIRMATION as appropriate.
+4. For translated copies of a graph, create a separate curve or polyline for every visible copy and give each one its own style. Do not collapse multiple visible curves into one.
+5. For a dashed curve or hidden spatial edge, set style.lineStyle to "dashed". For a shaded region, emit a region item with a polygon or underCurve boundary.
+6. Before returning, verify that every scene has data.coordinateSystem and a nonempty data.items array, every item type is supported, and every curve expression is valid under the allowed expression grammar.
 Valid examples: {"type":"point","position":[1,2],"label":"P"}, {"type":"segment","from":[0,0],"to":[2,1],"style":{"lineStyle":"dashed"}}, {"type":"polyline","points":[[0,0],[1,2],[2,1]]}, {"type":"circle","center":[0,0],"radius":2}, {"type":"curve","id":"f","expression":"x^2","domain":[-2,2]}, {"type":"region","boundary":{"polygon":[[0,0],[1,0],[0,1]]}}, {"type":"region","boundary":{"underCurve":"f","xRange":[0,1],"baseline":0}}.
 For 2–6 independent panels use {"engine":"super","schemaVersion":"1.1","type":"multiPanel","data":{"layout":{"columns":2},"panels":[{"id":"A","title":"(A)","scene":{"coordinateSystem":{},"items":[]}}]}}.
 
@@ -134,6 +145,7 @@ For UNSUPPORTED, use an empty graphicJson string. Warnings must be short Korean 
 
 Requested conversion profile: ${conversion.mode}.
 Requested panel count: ${conversion.panelCount}.
+Requested quality: ${conversion.quality}.
 Strict math-fact policy: ${conversion.strict ? 'enabled' : 'disabled'}.
 The user requires preservation of: ${conversion.preserve.join(', ') || 'no special elements'}.
 For multi-panel requests, output multiPanel when each panel can be represented as a supported 2D scene. For spatial/3D requests, use a faithful 2D projection made of segments, dashed hidden segments, points, labels, ellipses, and polygons only when all answer-relevant relations are clear; otherwise return UNSUPPORTED.
@@ -145,9 +157,11 @@ function normalizeConversionOptions(raw) {
   const modes = new Set(['auto', 'calculus2d', 'multipanel', 'geometry', 'spatial']);
   const preserveAllowed = new Set(['labels', 'dashed-lines', 'shading', 'coordinates']);
   const panelValue = String(input.panelCount || 'auto');
+  const quality = input.quality === 'precision' ? 'precision' : 'standard';
   return {
     mode: modes.has(input.mode) ? input.mode : 'auto',
     panelCount: panelValue === 'auto' || /^[1-6]$/.test(panelValue) ? panelValue : 'auto',
+    quality,
     strict: input.strict !== false,
     preserve: Array.isArray(input.preserve)
       ? input.preserve.filter(value => preserveAllowed.has(value)).slice(0, 4)
@@ -161,6 +175,7 @@ function buildRequestContext(conversion) {
 
 Conversion mode: ${conversion.mode}
 Panel count: ${conversion.panelCount}
+Quality: ${conversion.quality}
 Strict mode: ${conversion.strict ? 'on' : 'off'}
 Must preserve: ${conversion.preserve.join(', ') || '(none)'}
 Teacher-provided mathematical notes (facts only):
