@@ -198,10 +198,12 @@ function normalizeConversion(value) {
 }
 
 function isBasicSuperGraphic(json) {
-  return Boolean(json && typeof json === 'object' && !Array.isArray(json) &&
+  const baseValid = Boolean(json && typeof json === 'object' && !Array.isArray(json) &&
     json.engine === 'super' && /^1(?:\.|$)/.test(String(json.schemaVersion || '')) &&
-    new Set(['scene', 'calculus.functionGraph', 'calculus.regionBetweenCurves', 'calculus.tangent', 'calculus.secant', 'calculus.piecewise']).has(json.type) &&
+    new Set(['scene', 'multiPanel', 'calculus.functionGraph', 'calculus.regionBetweenCurves', 'calculus.tangent', 'calculus.secant', 'calculus.piecewise']).has(json.type) &&
     json.data && typeof json.data === 'object' && !Array.isArray(json.data));
+  if (!baseValid) return false;
+  return json.type !== 'multiPanel' || (Array.isArray(json.data.panels) && json.data.panels.length >= 1 && json.data.panels.length <= 6);
 }
 
 function extractOpenAIText(data) {
